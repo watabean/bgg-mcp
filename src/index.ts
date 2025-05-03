@@ -3,6 +3,14 @@ import {
   ResourceTemplate,
 } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { XMLParser } from "fast-xml-parser";
+import { z } from "zod";
+
+const BGG_API_ROOT = "https://boardgamegeek.com/xmlapi2";
+
+const parser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: "",
+});
 
 const server = new McpServer({
   name: "BGG API Explorer Server", // サーバーの名前
@@ -22,7 +30,7 @@ server.resource(
     try {
       // 資料 に記載されている BGG API のルートパスと Thing コマンドのベース URI を使用して URL を構築
       // 例として stats=1 パラメータを追加し、評価/ランキング情報も取得
-      const bggApiUrl = `https://boardgamegeek.com/xmlapi2/thing?id=${id}&stats=1`;
+      const bggApiUrl = `${BGG_API_ROOT}/thing?id=${id}&stats=1`;
 
       // BGG API エンドポイントへ HTTP GET リクエストを送信
       const response = await fetch(bggApiUrl);
@@ -31,11 +39,6 @@ server.resource(
       }
       const xmlText = await response.text();
 
-      // fast-xml-parser を使用して XML を JSON に変換
-      const parser = new XMLParser({
-        ignoreAttributes: false,
-        attributeNamePrefix: "",
-      });
       const result = parser.parse(xmlText);
 
       // パースしたデータから必要な情報を抽出 (例: ゲーム名、平均評価など)
@@ -65,6 +68,81 @@ server.resource(
         contents: [],
         isError: true,
         errorMessage: `Failed to retrieve BGG data for ID ${id}: ${error}`,
+      };
+    }
+  }
+);
+
+server.tool(
+  "bgg-search", // ツールの名前
+  {
+    // ツールの引数スキーマ (ソース[i, 15]より)
+    query: z.string().describe("検索するキーワード"),
+    type: z
+      .enum([
+        "rpgitem",
+        "videogame",
+        "boardgame",
+        "boardgameexpansion",
+        "boardgameaccessory",
+        "boardgamedesigner",
+      ])
+      .optional()
+      .describe("検索対象のアイテムタイプ (省略可、複数指定はコンマ区切り)"),
+    exact: z.boolean().optional().describe("完全一致検索を行うか (省略可)"),
+  },
+  async ({ query, type, exact }) => {
+    // ツールのハンドラー関数
+    try {
+      // BGG APIへのリクエストURLを構築 (ソース[i, 3, 15]より)
+      let url = `${BGG_API_ROOT}/search?query=${encodeURIComponent(query)}`;
+      if (type) {
+        // タイプはカンマ区切りで渡す仕様 (ソース[i, 15]より)
+        url += `&type=${encodeURIComponent(type)}`;
+      }
+      if (exact) {
+        url += `&exact=1`; // exact=1の場合のみパラメータをつける (ソース[i, 15]より)
+      }
+
+      console.log(`Calling BGG Search API: ${url}`); // デバッグ出力
+
+      // BGG APIを呼び出す (ソース[j, 26]のfetch-weatherツールを参考に、外部API呼び出し)
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const xmlText = await response.text();
+
+      // ここでXMLを解析し、結果を整形するロジックが入る
+      // (この部分はSDKの資料には直接記述がないため、BGG XML API2の出力形式に基づいて別途実装が必要です)
+      // 例: XMLパーサーライブラリを使用してアイテムリストを抽出
+
+      // 仮の応答データ（実際にはXML解析結果）
+      // fast-xml-parser を使用して XML を JSON に変換
+
+      const searchResults = parser.parse(xmlText); // 簡単のためXMLそのままを返す例
+
+      // ツールからの応答形式 (ソース[j, 23, 26]より)
+      return {
+        content: [
+          {
+            type: "text",
+            text: `BGG Search Results for "${query}":\n\n${searchResults}`,
+            // 実際にはここで解析したリストを表示するなど、整形された結果を返すべきです
+          },
+        ],
+      };
+    } catch (error: any) {
+      console.error("Error calling BGG Search API:", error);
+      // エラー応答の形式 (ソース[j, 32]のSQLite Explorerツールを参考に、エラーフラグ付き)
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error performing BGG search: ${error.message}`,
+          },
+        ],
+        isError: true, // エラーが発生したことを示すフラグ
       };
     }
   }
