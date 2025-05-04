@@ -5,12 +5,7 @@ import {
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { XMLParser } from "fast-xml-parser";
 import { z } from "zod";
-import {
-  boardGameItemSchema,
-  searchResultSchema,
-  type BoardGameItem,
-  type SearchResult,
-} from "./bgg-schema.js";
+import { boardGameItemSchema, searchResultSchema } from "./bgg-schema.js";
 
 const BGG_API_ROOT = "https://boardgamegeek.com/xmlapi2";
 const parser = new XMLParser({
