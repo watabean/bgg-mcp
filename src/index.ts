@@ -2,6 +2,7 @@ import {
   McpServer,
   ResourceTemplate,
 } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { XMLParser } from "fast-xml-parser";
 import { z } from "zod";
 
@@ -28,8 +29,8 @@ server.resource(
     console.log(`Received request for BGG Thing ID: ${id}`);
 
     try {
-      // 資料 に記載されている BGG API のルートパスと Thing コマンドのベース URI を使用して URL を構築
-      // 例として stats=1 パラメータを追加し、評価/ランキング情報も取得
+      // BGG API のルートパスと Thing コマンドのベース URI を使用して URL を構築
+      // stats=1 パラメータを追加し、評価/ランキング情報も取得
       const bggApiUrl = `${BGG_API_ROOT}/thing?id=${id}&stats=1`;
 
       // BGG API エンドポイントへ HTTP GET リクエストを送信
@@ -39,25 +40,86 @@ server.resource(
       }
       const xmlText = await response.text();
 
+      // XMLをパース
       const result = parser.parse(xmlText);
 
-      // パースしたデータから必要な情報を抽出 (例: ゲーム名、平均評価など)
-      const gameData = result.items.item; // XML 構造による
-      const name = gameData.name?._ || gameData.name?._; // 主な名前を取得
-      const averageRating = gameData.statistics.ratings.average?._;
+      // パースしたデータから必要な情報を抽出
+      const gameData = result.items.item;
 
-      // 抽出したデータを MCP Resource のレスポンス形式に合わせて整形
-      // MCP Resource は typically text コンテンツを返します
-      const exampleGameName = `サンプルゲーム (ID: ${id})`; // 実際にはパース結果から取得
-      const exampleAverageRating = "N/A"; // 実際にはパース結果から取得
+      // 複数のゲームが返されたら最初のものを使用
+      const game = Array.isArray(gameData) ? gameData[0] : gameData;
 
-      const contentText = `Game: ${exampleGameName}\nAverage Rating: ${exampleAverageRating}\n(詳細情報は省略)`;
+      if (!game) {
+        throw new Error(`ID:${id}のゲーム情報が見つかりませんでした`);
+      }
+
+      // 基本情報を取得
+      interface GameName {
+        type: string;
+        value: string;
+      }
+
+      const nameObj: GameName | undefined = Array.isArray(game.name)
+        ? game.name.find((n: GameName) => n.type === "primary") || game.name[0]
+        : game.name;
+
+      const name = nameObj?.value || "不明";
+      const yearPublished = game.yearpublished?.value || "不明";
+      const minPlayers = game.minplayers?.value || "不明";
+      const maxPlayers = game.maxplayers?.value || "不明";
+      const playingTime = game.playingtime?.value || "不明";
+
+      // 説明文を取得
+      const description = game.description || "説明なし";
+
+      // 評価情報を取得
+      const stats = game.statistics;
+      const ratings = stats?.ratings || {};
+      const averageRating = ratings.average?.value || "未評価";
+      const numRatings = ratings.usersrated?.value || "0";
+      const rank = ratings.ranks?.rank;
+
+      // メインランク（ボードゲーム全体でのランク）を取得
+      let mainRank = "ランク外";
+      if (Array.isArray(rank)) {
+        const boardgameRank = rank.find((r) => r.name === "boardgame");
+        if (boardgameRank && boardgameRank.value !== "Not Ranked") {
+          mainRank = boardgameRank.value;
+        }
+      } else if (rank && rank.value !== "Not Ranked") {
+        mainRank = rank.value;
+      }
+
+      // カテゴリを取得
+      const categories = [];
+      if (game.link) {
+        const links = Array.isArray(game.link) ? game.link : [game.link];
+        for (const link of links) {
+          if (link.type === "boardgamecategory") {
+            categories.push(link.value);
+          }
+        }
+      }
+
+      // コンテンツを構成
+      let contentText = `# ${name} (${yearPublished})\n\n`;
+      contentText += `プレイ人数: ${minPlayers}～${maxPlayers}人\n`;
+      contentText += `プレイ時間: 約${playingTime}分\n`;
+      contentText += `BGG評価: ${averageRating}/10 (${numRatings}件の評価)\n`;
+      contentText += `ボードゲームランク: ${mainRank}\n\n`;
+
+      if (categories.length > 0) {
+        contentText += `カテゴリ: ${categories.join(", ")}\n\n`;
+      }
+
+      contentText += `## 概要\n${description}\n\n`;
+      contentText += `詳細情報: https://boardgamegeek.com/boardgame/${id}\n`;
 
       return {
         contents: [
           {
             uri: uri.href,
-            text: contentText, // テキスト形式のコンテンツを返す
+            text: contentText,
           },
         ],
       };
@@ -67,7 +129,7 @@ server.resource(
       return {
         contents: [],
         isError: true,
-        errorMessage: `Failed to retrieve BGG data for ID ${id}: ${error}`,
+        errorMessage: `ID ${id}のボードゲーム情報の取得に失敗しました: ${error}`,
       };
     }
   }
@@ -76,7 +138,7 @@ server.resource(
 server.tool(
   "bgg-search", // ツールの名前
   {
-    // ツールの引数スキーマ (ソース[i, 15]より)
+    // ツールの引数スキーマ
     query: z.string().describe("検索するキーワード"),
     type: z
       .enum([
@@ -88,62 +150,90 @@ server.tool(
         "boardgamedesigner",
       ])
       .optional()
-      .describe("検索対象のアイテムタイプ (省略可、複数指定はコンマ区切り)"),
+      .describe("検索対象のアイテムタイプ (省略可、複数指定はカンマ区切り)"),
     exact: z.boolean().optional().describe("完全一致検索を行うか (省略可)"),
   },
   async ({ query, type, exact }) => {
     // ツールのハンドラー関数
     try {
-      // BGG APIへのリクエストURLを構築 (ソース[i, 3, 15]より)
+      // BGG APIへのリクエストURLを構築
       let url = `${BGG_API_ROOT}/search?query=${encodeURIComponent(query)}`;
       if (type) {
-        // タイプはカンマ区切りで渡す仕様 (ソース[i, 15]より)
+        // タイプパラメータを追加
         url += `&type=${encodeURIComponent(type)}`;
       }
       if (exact) {
-        url += `&exact=1`; // exact=1の場合のみパラメータをつける (ソース[i, 15]より)
+        url += `&exact=1`; // 完全一致検索のフラグ
       }
 
       console.log(`Calling BGG Search API: ${url}`); // デバッグ出力
 
-      // BGG APIを呼び出す (ソース[j, 26]のfetch-weatherツールを参考に、外部API呼び出し)
+      // BGG APIを呼び出す
       const response = await fetch(url);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const xmlText = await response.text();
 
-      // ここでXMLを解析し、結果を整形するロジックが入る
-      // (この部分はSDKの資料には直接記述がないため、BGG XML API2の出力形式に基づいて別途実装が必要です)
-      // 例: XMLパーサーライブラリを使用してアイテムリストを抽出
+      // XMLを解析して検索結果を取得
+      const parsedData = parser.parse(xmlText);
 
-      // 仮の応答データ（実際にはXML解析結果）
-      // fast-xml-parser を使用して XML を JSON に変換
+      // BGG API の検索結果は items > item の配列として返ってくる
+      const items = parsedData.items?.item || [];
+      const totalResults = parsedData.items?.total || 0;
 
-      const searchResults = parser.parse(xmlText); // 簡単のためXMLそのままを返す例
+      // 検索結果がない場合の処理
+      if (totalResults === 0 || !items) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `検索結果: "${query}" に一致するボードゲームは見つかりませんでした。`,
+            },
+          ],
+        };
+      }
 
-      // ツールからの応答形式 (ソース[j, 23, 26]より)
+      // 検索結果を整形（配列かどうかを確認）
+      const itemsList = Array.isArray(items) ? items : [items];
+
+      // 検索結果を整形してテキストに変換
+      let resultText = `"${query}" の検索結果: ${totalResults}件\n\n`;
+
+      itemsList.forEach((item, index) => {
+        const id = item.id;
+        const name = item.name?.value || item.name || "不明";
+        const yearPublished = item.yearpublished?.value || "不明";
+        const itemType = item.type || "不明";
+
+        resultText += `${index + 1}. ${name} (${yearPublished})\n`;
+        resultText += `   ID: ${id}, タイプ: ${itemType}\n`;
+        resultText += `   詳細: bgg://thing/${id}\n\n`;
+      });
+
       return {
         content: [
           {
             type: "text",
-            text: `BGG Search Results for "${query}":\n\n${searchResults}`,
-            // 実際にはここで解析したリストを表示するなど、整形された結果を返すべきです
+            text: resultText,
           },
         ],
       };
     } catch (error: any) {
       console.error("Error calling BGG Search API:", error);
-      // エラー応答の形式 (ソース[j, 32]のSQLite Explorerツールを参考に、エラーフラグ付き)
       return {
         content: [
           {
             type: "text",
-            text: `Error performing BGG search: ${error.message}`,
+            text: `BGG検索中にエラーが発生しました: ${error.message}`,
           },
         ],
-        isError: true, // エラーが発生したことを示すフラグ
+        isError: true, // エラーフラグ
       };
     }
   }
 );
+
+// Start receiving messages on stdin and sending messages on stdout
+const transport = new StdioServerTransport();
+await server.connect(transport);
