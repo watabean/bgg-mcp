@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-// 基本的な値型の定義（多くのフィールドが共通の形式を持つ）
+// 共通の型定義をヘルパー関数として抽出
+const createArrayOrSingle = <T extends z.ZodTypeAny>(schema: T) =>
+  z.array(schema).or(schema);
+
+// 基本的な値型の定義
 const valueObject = z.object({
   value: z.string().optional(),
 });
@@ -30,7 +34,14 @@ const pollSummaryResultObject = z.object({
 const pollSummaryObject = z.object({
   name: z.string(),
   title: z.string().optional(),
-  result: z.array(pollSummaryResultObject).or(pollSummaryResultObject),
+  result: createArrayOrSingle(pollSummaryResultObject),
+});
+
+// ポール定義の内部オブジェクト
+const pollResultsObject = z.object({
+  numplayers: z.string().optional(),
+  level: z.string().optional(),
+  result: createArrayOrSingle(pollResultObject),
 });
 
 // ポール定義
@@ -38,28 +49,22 @@ const pollObject = z.object({
   name: z.string(),
   title: z.string(),
   totalvotes: z.string(),
-  results: z
-    .array(
-      z.object({
-        numplayers: z.string().optional(),
-        level: z.string().optional(),
-        result: z.array(pollResultObject).or(pollResultObject),
-      })
-    )
-    .or(
-      z.object({
-        numplayers: z.string().optional(),
-        level: z.string().optional(),
-        result: z.array(pollResultObject).or(pollResultObject),
-      })
-    ),
+  results: createArrayOrSingle(pollResultsObject),
 });
 
-// リンクオブジェクトの定義（カテゴリ、メカニック、デザイナーなど）
+// リンクオブジェクトの定義
 const linkObject = z.object({
   type: z.string(),
   value: z.string(),
   objectid: z.string().optional(),
+});
+
+// ランク定義
+const rankObject = z.object({
+  type: z.string().optional(),
+  name: z.string().optional(),
+  friendlyname: z.string().optional(),
+  value: z.string().optional(),
 });
 
 // レーティング情報の定義
@@ -69,23 +74,7 @@ const ratingsObject = z.object({
   bayesaverage: valueObject.optional(),
   ranks: z
     .object({
-      rank: z
-        .array(
-          z.object({
-            type: z.string().optional(),
-            name: z.string().optional(),
-            friendlyname: z.string().optional(),
-            value: z.string().optional(),
-          })
-        )
-        .or(
-          z.object({
-            type: z.string().optional(),
-            name: z.string().optional(),
-            friendlyname: z.string().optional(),
-            value: z.string().optional(),
-          })
-        ),
+      rank: createArrayOrSingle(rankObject),
     })
     .optional(),
 });
@@ -99,7 +88,7 @@ const statisticsObject = z.object({
 export const boardGameItemSchema = z.object({
   id: z.string().optional(),
   type: z.string().optional(),
-  name: z.array(nameObject).or(nameObject),
+  name: createArrayOrSingle(nameObject),
   yearpublished: valueObject.optional(),
   minplayers: valueObject.optional(),
   maxplayers: valueObject.optional(),
@@ -111,16 +100,16 @@ export const boardGameItemSchema = z.object({
   thumbnail: z.string().optional(),
   image: z.string().optional(),
   statistics: statisticsObject.optional(),
-  link: z.array(linkObject).or(linkObject).optional(),
-  "poll-summary": z.array(pollSummaryObject).or(pollSummaryObject).optional(),
-  poll: z.array(pollObject).or(pollObject).optional(),
+  link: createArrayOrSingle(linkObject).optional(),
+  "poll-summary": createArrayOrSingle(pollSummaryObject).optional(),
+  poll: createArrayOrSingle(pollObject).optional(),
 });
 
-// ボードゲーム一覧の定義（複数のゲームを含む可能性がある）
+// ボードゲーム一覧の定義
 export const boardGamesSchema = z.object({
   items: z.object({
     total: z.string().optional(),
-    item: z.array(boardGameItemSchema).or(boardGameItemSchema),
+    item: createArrayOrSingle(boardGameItemSchema),
   }),
 });
 
@@ -141,11 +130,11 @@ export const searchItemSchema = z.object({
 export const searchResultSchema = z.object({
   items: z.object({
     total: z.string().optional(),
-    item: z.array(searchItemSchema).or(searchItemSchema).optional(),
+    item: createArrayOrSingle(searchItemSchema).optional(),
   }),
 });
 
-// 型エクスポート（TypeScript用）
+// 型エクスポート
 export type BoardGameItem = z.infer<typeof boardGameItemSchema>;
 export type BoardGames = z.infer<typeof boardGamesSchema>;
 export type SearchItem = z.infer<typeof searchItemSchema>;
