@@ -16,6 +16,35 @@ const parser = new XMLParser({
 const server = new McpServer({
   name: "BGG API Explorer Server",
   version: "1.0.0",
+  capabilities: {
+    "bgg-thing": {
+      description: "BGGのボードゲーム情報を取得する",
+      parameters: {
+        id: {
+          type: "string",
+          description: "ボードゲームのID",
+        },
+      },
+    },
+    "bgg-search": {
+      description: "BGGのボードゲームを検索する",
+      parameters: {
+        query: {
+          type: "string",
+          description: "検索するキーワード",
+        },
+        type: {
+          type: "string",
+          description:
+            "検索対象のアイテムタイプ (省略可、複数指定はカンマ区切り)",
+        },
+        exact: {
+          type: "boolean",
+          description: "完全一致検索を行うか (省略可)",
+        },
+      },
+    },
+  },
 });
 
 // ヘルパー関数 - 配列かどうかを判断して適切に処理
