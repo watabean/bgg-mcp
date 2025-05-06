@@ -1,6 +1,6 @@
-# BGG MCP (BoardGameGeek Model Context Protocol) Server
+# BGG MCP Server
 
-このプロジェクトは、[BoardGameGeek API](https://boardgamegeek.com/wiki/page/BGG_XML_API2)をラップして、[Model Context Protocol (MCP)](https://github.com/microsoft/modelcontextprotocol)を通じてアクセスできるようにするサーバーです。
+このプロジェクトは、[BoardGameGeek API](https://boardgamegeek.com/wiki/page/BGG_XML_API2)をラップして、[Model Context Protocol (MCP)](https://github.com/modelcontextprotocol)を通じてアクセスできるようにするサーバーです。
 
 ## 機能
 
