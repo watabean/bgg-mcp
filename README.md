@@ -11,10 +11,6 @@
 ## インストール
 
 ```bash
-# リポジトリをクローン
-git clone [このリポジトリのURL]
-cd bgg-mcp
-
 # 依存関係をインストール
 npm install
 
@@ -55,9 +51,3 @@ npm run test
 URI 形式: `bgg://thing/{id}`
 
 ボードゲームの詳細情報を取得するためのリソースです。`id`は BoardGameGeek のゲーム ID です。
-
-## MCP について
-
-Model Context Protocol (MCP)は、大規模言語モデル(LLM)と外部システムを簡単に統合するためのプロトコルです。このプロジェクトでは、MCP を使用して BoardGameGeek の API にアクセスする方法を示しています。
-
-詳細については[MCP 公式リポジトリ](https://github.com/microsoft/modelcontextprotocol)を参照してください。
